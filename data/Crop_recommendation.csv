@@ -1,0 +1,5 @@
+N,P,K,ph,temperature,humidity,rainfall,label
+90,42,43,6.5,25,80,200,rice
+50,40,45,7.0,30,60,20,maize
+110,80,30,5.5,20,55,5,wheat
+40,20,60,8.0,28,70,50,groundnut

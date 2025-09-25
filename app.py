@@ -10,23 +10,105 @@ import io
 from googletrans import Translator
 from gtts import gTTS
 import re
-# Language Mapping
+import bcrypt
+
+
+
+
+
+# ================== LOGIN SYSTEM ==================
+if "users" not in st.session_state:
+    st.session_state["users"] = {"admin": "admin123"}  # default user
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "current_user" not in st.session_state:
+    st.session_state["current_user"] = None
+
+
+
+import bcrypt
+from db import create_user, get_user_by_email, update_password
+
+def login_page():
+    st.title(t("🔐 Login to Agrosense"))
+
+    menu = t(["Login", "Register", "Forgot Password"])
+    choice = st.radio(t("Select Action"), menu)
+
+    # ---------------- Login ----------------
+    if choice == t("Login"):
+        email = st.text_input(t("📧 Email"))
+        password = st.text_input(t("🔑 Password"), type="password")
+        if st.button("Login"):
+            user = get_user_by_email(email)
+            if user and bcrypt.checkpw(password.encode("utf-8"), user["password"]):
+                st.session_state["logged_in"] = True
+                st.session_state["current_user"] = email
+                st.success(t("✅ Welcome {email}!"))
+                st.stop()
+            else:
+                st.error(t("❌ Invalid email or password"))
+
+    # ---------------- Register ----------------
+    elif choice == t("Register"):
+        new_email = st.text_input(t("📧 Enter Email"))
+        new_pass = st.text_input("🔑 Create Password", type="password")
+        if st.button("Register"):
+            if not new_email or not new_pass:
+                st.warning("⚠️ Email and password required")
+            else:
+                hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
+                ok, msg = create_user(new_email, hashed)
+                if ok:
+                    st.success("✅ Registration successful! Please login.")
+                else:
+                    st.warning(f"⚠️ {msg}")
+
+    # ---------------- Forgot Password ----------------
+    elif choice == "Forgot Password":
+        reset_email = st.text_input("📧 Enter your registered email")
+        new_pass = st.text_input("🔑 New Password", type="password")
+        confirm_pass = st.text_input("🔑 Confirm New Password", type="password")
+
+        if st.button("Reset Password"):
+            if not reset_email or not new_pass or not confirm_pass:
+                st.warning("⚠️ All fields required")
+            elif new_pass != confirm_pass:
+                st.error("❌ Passwords do not match")
+            else:
+                hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
+                ok, msg = update_password(reset_email, hashed)
+                if ok:
+                    st.success("✅ Password reset successful! Please login again.")
+                else:
+                    st.error(f"❌ {msg}")
+
+
+# ================== END LOGIN SYSTEM ==================
+
+
+# 🌐 Language Mapping
 lang_map = {"English": "en", "Telugu": "te", "Hindi": "hi"}
 
-# Sidebar for language
+# Sidebar for language selection
 language = st.sidebar.selectbox("🌐 Select Language", options=list(lang_map.keys()), index=0)
 lang_code = lang_map[language]
 
-# Initialize translator
-translator = Translator()
-def t(text):
-    if language == "English":
+# Initialize translator only once
+if "translator" not in st.session_state:
+    st.session_state["translator"] = Translator()
+
+def t(text: str) -> str:
+    """Translate text to the selected language."""
+    if lang_code == "en":  # Default English
         return text
     try:
-        translated = translator.translate(text, dest=lang_code)
+        translated = st.session_state["translator"].translate(text, dest=lang_code)
         return translated.text
-    except Exception:
-        return text  # fallback if API fails
+    except Exception as e:
+        # fallback: return original text
+        return text
+
 def speak(text):
     tts = gTTS(text=text, lang=lang_code)
     tts.save("voice.mp3")
@@ -146,60 +228,71 @@ def get_weather(city):
         st.error(f"Weather fetch error: {e}")
         return None, None, None
 
-# Sidebar
-page = st.sidebar.radio("Navigate", [
-    "🏠 Home", 
-    "🌦️ Input Data", 
-    "🌱 Recommend Crop", 
-    "🧪 Fertilizer Suggestion", 
-    "📊 Historical Weather",
-    "📈 Yield & Forecast", 
-    "♻️ Crop Rotation Plan",  # ✅ NEW PAGE
-    "📊 Crop Prediction Insights",
-    "📄 Download Report"
-])
+if not st.session_state["logged_in"]:
+    login_page()
+    st.stop()  # stop execution until logged in
+else:
+    st.sidebar.write(f"👋 Logged in as: {st.session_state['current_user']}")
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state["logged_in"] = False
+        st.session_state["current_user"] = None
+        st.stop()
+
+    # Sidebar Navigation
+    page = st.sidebar.radio("Navigate", [
+        "🏠 Home", 
+        "🌦️ Input Data", 
+        "🌱 Recommend Crop", 
+        "🧪 Fertilizer Suggestion", 
+        "📊 Historical Weather",
+        "📈 Yield & Forecast", 
+        "♻️ Crop Rotation Plan",
+        "📊 Crop Prediction Insights",
+        "📄 Download Report"
+    ])
 
 
 # Home
 if page == "🏠 Home":
     st.header(t("Welcome to Agrosense 👋"))
-    st.markdown("""
+    st.markdown(t("""
     Agrosense helps farmers and agriculturists make informed crop choices using:
     - ✅ Soil Nutrient Data (N, P, K, pH)
     - ✅ Real-Time Weather (Temperature, Humidity, Rainfall)
     - ✅ Seasonal Suitability Checks
     - ✅ Fertilizer Suggestions
     - ✅ PDF Recommendations
-    """)
+    """))
+
 
 # Input
 elif page == "🌦️ Input Data":
-    st.header("🧪 Enter Soil & Weather Conditions")
+    st.header(t("🧪 Enter Soil & Weather Conditions"))
 
-    N = st.slider("Nitrogen (N)", 0, 140, 90)
-    P = st.slider("Phosphorus (P)", 5, 145, 42)
-    K = st.slider("Potassium (K)", 5, 205, 43)
-    ph = st.slider("pH Level", 3.5, 9.5, 6.5)
+    N = st.slider(t("Nitrogen (N)"), 0, 140, 90)
+    P = st.slider(t("Phosphorus (P)"), 5, 145, 42)
+    K = st.slider(t("Potassium (K)"), 5, 205, 43)
+    ph = st.slider(t("pH Level"), 3.5, 9.5, 6.5)
 
-    city = st.text_input("🌍 Enter City for Live Weather", "Vijayawada")
+    city = st.text_input(t("🌍 Enter City for Live Weather"), "Vijayawada")
     st.session_state["city"] = city
 
-    if st.button("📡 Fetch Weather"):
+    if st.button(t("📡 Fetch Weather")):
         temp, hum, rain = get_weather(city)
         if temp is not None:
-            st.success(f"Weather in {city}")
-            st.write(f"🌡️ Temperature: {temp} °C")
-            st.write(f"💧 Humidity: {hum} %")
-            st.write(f"🌧️ Rainfall: {rain} mm")
+            st.success(t(f"Weather in {city}"))
+            st.write(t(f"🌡️ Temperature: {temp} °C"))
+            st.write(t(f"💧 Humidity: {hum} %"))
+            st.write(t(f"🌧️ Rainfall: {rain} mm"))
             st.session_state.temp = temp
             st.session_state.hum = hum
             st.session_state.rain = rain
         else:
-            st.error("Could not fetch weather.")
+            st.error(t("Could not fetch weather."))
     else:
-        temp = st.slider("Temperature (°C)", 8.0, 45.0, 25.0)
-        hum = st.slider("Humidity (%)", 10.0, 100.0, 80.0)
-        rain = st.slider("Rainfall (mm)", 20.0, 300.0, 100.0)
+        temp = st.slider(t("Temperature (°C)"), 8.0, 45.0, 25.0)
+        hum = st.slider(t("Humidity (%)"), 10.0, 100.0, 80.0)
+        rain = st.slider(t("Rainfall (mm)"), 20.0, 300.0, 100.0)
 
     st.session_state.update({
         'N': N, 'P': P, 'K': K, 'ph': ph,
@@ -207,10 +300,11 @@ elif page == "🌦️ Input Data":
         'humidity': st.session_state.get("hum", hum),
         'rainfall': st.session_state.get("rain", rain),
     })
+
     
 # Recommend Crop
 elif page == "🌱 Recommend Crop":
-    st.header("🌱 Recommended Crop Based on Conditions")
+    st.header(t("🌱 Recommended Crop Based on Conditions"))
 
     if 'N' in st.session_state:
         input_data = [
@@ -228,39 +322,37 @@ elif page == "🌱 Recommend Crop":
         crops = model.classes_
         recommended_crop = crops[top_indices[0]]
         st.session_state["recommendation"] = recommended_crop
-
+        
         # Store top 3 crops for fertilizer suggestion dropdown
         top_3_crops = [crops[i] for i in top_indices]
         st.session_state["fertilizer_recommendations"] = top_3_crops
 
-        
-
-        st.success(f"✅ Best Crop: **{recommended_crop}**")
+        st.success(t(f"✅ Best Crop: **{recommended_crop}**"))
         # Show Top 3 Crops Pie Chart
-        st.write("### 🥈 Other Good Options:")
+        st.write(t("### 🥈 Other Good Options:"))
         for i in top_indices[1:]:   
-            st.write(f"- {crops[i]} ({round(probabilities[i]*100, 2)}%)")
+            st.write(t(f"- {crops[i]} ({round(probabilities[i]*100, 2)}%)"))
 
         # Determine Current Season
         month = datetime.datetime.now().month
-        season = "Kharif" if 6 <= month <= 9 else "Rabi" if 10 <= month <= 3 else "Zaid"
-        st.info(f"📅 Current Season: **{season}**")
+        season = t("Kharif") if 6 <= month <= 9 else t("Rabi") if 10 <= month <= 3 else t("Zaid")
+        st.info(t(f"📅 Current Season: **{season}**"))
 
         
 
         
 elif page == "🧪 Fertilizer Suggestion":
-    st.header("🧪 Fertilizer Suggestion Based on Your Input")
+    st.header(t("🧪 Fertilizer Suggestion Based on Your Input"))
 
     # Check if input and recommendation data exists
     if 'N' not in st.session_state or 'fertilizer_recommendations' not in st.session_state:
-        st.warning("⚠️ Please complete input and crop recommendation first.")
+        st.warning(t("⚠️ Please complete input and crop recommendation first."))
     else:
         top_crops = st.session_state['fertilizer_recommendations']  # list of top 3 crops
-        selected_crop = st.selectbox("🌾 Select a crop from recommended list", top_crops)
+        selected_crop = st.selectbox(t("🌾 Select a crop from recommended list"), top_crops)
 
-    if st.button("📊 Show Fertilizer Recommendation"):
-    # Get your input values
+    if st.button(t("📊 Show Fertilizer Recommendation")):
+        # Get your input values
         N_input = st.session_state["N"]
         P_input = st.session_state["P"]
         K_input = st.session_state["K"]
@@ -271,42 +363,42 @@ elif page == "🧪 Fertilizer Suggestion":
         
         if match:
             rec_n, rec_p, rec_k = map(int, match[0])
-            st.write(f"**Recommended NPK for {selected_crop.capitalize()}:** N: {rec_n}, P: {rec_p}, K: {rec_k} — {rec.split('—')[-1].strip()}")
+            st.write(t(f"**Recommended NPK for {selected_crop.capitalize()}:** N: {rec_n}, P: {rec_p}, K: {rec_k} — {rec.split('—')[-1].strip()}"))
 
             # Nitrogen
             if abs(N_input - rec_n) <= 10:
-                st.success("✅ Nitrogen (N) is optimal.")
+                st.success(t("✅ Nitrogen (N) is optimal."))
             elif N_input < rec_n:
                 diff = rec_n - N_input
-                st.error(f"🔻 Nitrogen (N) is low by {diff} units. ➤ Suggest: Apply **Urea** or **DAP**.")
+                st.error(t(f"🔻 Nitrogen (N) is low by {diff} units. ➤ Suggest: Apply **Urea** or **DAP**."))
             else:
                 diff = N_input - rec_n
-                st.warning(f"🔺 Nitrogen (N) is high by {diff} units. ➤ Avoid further nitrogen application.")
+                st.warning(t(f"🔺 Nitrogen (N) is high by {diff} units. ➤ Avoid further nitrogen application."))
 
             # Phosphorus
             if abs(P_input - rec_p) <= 10:
-                st.success("✅ Phosphorus (P) is optimal.")
+                st.success(t("✅ Phosphorus (P) is optimal."))
             elif P_input < rec_p:
                 diff = rec_p - P_input
-                st.error(f"🔻 Phosphorus (P) is low by {diff} units. ➤ Suggest: Apply **SSP** or **DAP**.")
+                st.error(t(f"🔻 Phosphorus (P) is low by {diff} units. ➤ Suggest: Apply **SSP** or **DAP**."))
             else:
                 diff = P_input - rec_p
-                st.warning(f"🔺 Phosphorus (P) is high by {diff} units. ➤ Avoid excess P fertilizers.")
+                st.warning(t(f"🔺 Phosphorus (P) is high by {diff} units. ➤ Avoid excess P fertilizers."))
 
             # Potassium
             if abs(K_input - rec_k) <= 10:
-                st.success("✅ Potassium (K) is optimal.")
+                st.success(t("✅ Potassium (K) is optimal."))
             elif K_input < rec_k:
                 diff = rec_k - K_input
-                st.error(f"🔻 Potassium (K) is low by {diff} units. ➤ Suggest: Apply **MOP**.")
+                st.error(t(f"🔻 Potassium (K) is low by {diff} units. ➤ Suggest: Apply **MOP**."))
             else:
                 diff = K_input - rec_k
-                st.warning(f"🔺 Potassium (K) is high by {diff} units. ➤ Avoid adding Potash (K).")
+                st.warning(t(f"🔺 Potassium (K) is high by {diff} units. ➤ Avoid adding Potash (K)."))
         else:
-            st.warning("⚠️ No fertilizer data found for selected crop.")
+            st.warning(t("⚠️ No fertilizer data found for selected crop."))
 
 elif page == "📊 Historical Weather":
-    st.header("📊 Historical Weather Comparison")
+    st.header(t("📊 Historical Weather Comparison"))
 
     city = st.session_state.get("city", "Vijayawada")
     month = datetime.datetime.now().month
@@ -314,29 +406,30 @@ elif page == "📊 Historical Weather":
 
     if not hist.empty and all(k in st.session_state for k in ["temperature", "humidity", "rainfall"]):
         current = {
-            "Temperature (°C)": st.session_state["temperature"],
-            "Humidity (%)": st.session_state["humidity"],
-            "Rainfall (mm)": st.session_state["rainfall"]
+            t("Temperature (°C)"): st.session_state["temperature"],
+            t("Humidity (%)"): st.session_state["humidity"],
+            t("Rainfall (mm)"): st.session_state["rainfall"]
         }
         historical = {
-            "Temperature (°C)": hist.iloc[0]["Avg_Temp"],
-            "Humidity (%)": hist.iloc[0]["Avg_Humidity"],
-            "Rainfall (mm)": hist.iloc[0]["Avg_Rainfall"]
+            t("Temperature (°C)"): hist.iloc[0]["Avg_Temp"],
+            t("Humidity (%)"): hist.iloc[0]["Avg_Humidity"],
+            t("Rainfall (mm)"): hist.iloc[0]["Avg_Rainfall"]
         }
 
-        compare_df = pd.DataFrame([historical, current], index=["Historical Avg", "Current"])
+        compare_df = pd.DataFrame([historical, current], index=[t("Historical Avg"), t("Current")])
         st.dataframe(compare_df)
 
         fig, ax = plt.subplots()
         compare_df.T.plot(kind="bar", ax=ax)
-        plt.title(f"Current vs Historical Weather - {city} (Month {month})")
-        plt.ylabel("Value")
+        plt.title(t(f"Current vs Historical Weather - {city} (Month {month})"))
+        plt.ylabel(t("Value"))
         plt.xticks(rotation=0)
         st.pyplot(fig)
     else:
-        st.warning("⚠️ Make sure you have entered city and fetched weather in the 'Input Data' page.")
+        st.warning(t("⚠️ Make sure you have entered city and fetched weather in the 'Input Data' page."))
+
 elif page == "📊 Crop Prediction Insights":
-    st.header("📊 Top Crop Prediction Insights")
+    st.header(t("📊 Top Crop Prediction Insights"))
     
     if "fertilizer_recommendations" in st.session_state:
         crops = model.classes_
@@ -352,8 +445,6 @@ elif page == "📊 Crop Prediction Insights":
         probabilities = model.predict_proba([input_data])[0]
         top_indices = np.argsort(probabilities)[::-1][:3]
 
-       
-
         # Pie Chart
         fig, ax = plt.subplots()
         ax.pie([probabilities[i]*100 for i in top_indices],
@@ -363,7 +454,7 @@ elif page == "📊 Crop Prediction Insights":
         st.pyplot(fig)
 
     else:
-        st.warning("⚠️ Please complete crop recommendation first.")
+        st.warning(t("⚠️ Please complete crop recommendation first."))
 
 elif page == "📈 Yield & Forecast":
     st.header("📈 Yield & Profit Forecast")
@@ -394,13 +485,13 @@ elif page == "📈 Yield & Forecast":
         else:
             st.warning(t("⚠️ Yield data not available for this crop."))
 elif page == "♻️ Crop Rotation Plan":
-    st.header("♻️ Crop Rotation Plan")
+    st.header(t("♻️ Crop Rotation Plan"))
 
     if "recommendation" not in st.session_state:
-        st.warning("⚠️ Please generate a crop recommendation first.")
+        st.warning(t("⚠️ Please generate a crop recommendation first."))
     else:
         recommended_crop = st.session_state["recommendation"]
-        st.success(f"✅ Base Crop: **{recommended_crop}**")
+        st.success(t(f"✅ Base Crop: **{recommended_crop}**"))
 
         base_type = crop_type_map.get(recommended_crop.lower())
         if base_type:
@@ -412,51 +503,52 @@ elif page == "♻️ Crop Rotation Plan":
                 next_type = type_order[(current_index + i) % 3]
                 candidates = rotation_cycle[next_type]
                 suggested_crop = np.random.choice(candidates)
-                season_label = ["Next Season", "Season After", "3rd Season After"][i - 1]
+                season_label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
                 rotation_plan.append((season_label, next_type.capitalize(), suggested_crop))
 
-            st.subheader("🔄 Multi-Season Plan")
+            st.subheader(t("🔄 Multi-Season Plan"))
             for label, typ, crop in rotation_plan:
-                st.write(f"👉 {label} ({typ}): **{crop.capitalize()}**")
+                st.write(t(f"👉 {label} ({typ}): **{crop.capitalize()}**"))
         else:
-            st.warning("⚠️ No rotation type information available for this crop.")
+            st.warning(t("⚠️ No rotation type information available for this crop."))
 
         rotation_crop = rotation_rules.get(recommended_crop.lower(), None)
         if rotation_crop:
-            st.info(f"📌 Suggested Follow-up Crop (for direct rotation): **{rotation_crop}**")
+            st.info(t(f"📌 Suggested Follow-up Crop (for direct rotation): **{rotation_crop}**"))
         else:
-            st.warning("⚠️ No crop rotation advice available.")
+            st.warning(t("⚠️ No crop rotation advice available."))
+
 elif page == "📄 Download Report":
-    st.header("📄 Download Recommendation Report")
+    st.header(t("📄 Download Recommendation Report"))
 
     if 'recommendation' in st.session_state:
         recommendation = st.session_state.recommendation
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="Agrosense Crop Recommendation Report", ln=True, align='C')
+        pdf.cell(200, 10, txt=t("Agrosense Crop Recommendation Report"), ln=True, align='C')
         pdf.ln(10)
 
         # Input Data
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt=clean_pdf_text("Input Conditions:"), ln=True)
+        pdf.cell(200, 10, txt=t("Input Conditions:"), ln=True)
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=f"Nitrogen (N): {st.session_state.N}", ln=True)
-        pdf.cell(200, 10, txt=f"Phosphorus (P): {st.session_state.P}", ln=True)
-        pdf.cell(200, 10, txt=f"Potassium (K): {st.session_state.K}", ln=True)
-        pdf.cell(200, 10, txt=f"pH: {st.session_state.ph}", ln=True)
-        pdf.cell(200, 10, txt=f"Temperature: {st.session_state.temperature} °C", ln=True)
-        pdf.cell(200, 10, txt=f"Humidity: {st.session_state.humidity} %", ln=True)
-        pdf.cell(200, 10, txt=f"Rainfall: {st.session_state.rainfall} mm", ln=True)
+        pdf.cell(200, 10, txt=t(f"Nitrogen (N): {st.session_state.N}"), ln=True)
+        pdf.cell(200, 10, txt=t(f"Phosphorus (P): {st.session_state.P}"), ln=True)
+        pdf.cell(200, 10, txt=t(f"Potassium (K): {st.session_state.K}"), ln=True)
+        pdf.cell(200, 10, txt=t(f"pH: {st.session_state.ph}"), ln=True)
+        pdf.cell(200, 10, txt=t(f"Temperature: {st.session_state.temperature} °C"), ln=True)
+        pdf.cell(200, 10, txt=t(f"Humidity: {st.session_state.humidity} %"), ln=True)
+        pdf.cell(200, 10, txt=t(f"Rainfall: {st.session_state.rainfall} mm"), ln=True)
         pdf.ln(5)
 
         # Recommendation
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt=clean_pdf_text("Crop Recommendation:"), ln=True)
+        pdf.cell(200, 10, txt=t("Crop Recommendation:"), ln=True)
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=clean_pdf_text(f"Recommended Crop: {recommendation}"), ln=True)
-        rotation_crop = rotation_rules.get(recommendation.lower(), "Not available")
-        pdf.cell(200, 10, txt=clean_pdf_text(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
+        pdf.cell(200, 10, txt=t(f"Recommended Crop: {recommendation}"), ln=True)
+        rotation_crop = rotation_rules.get(recommendation.lower(), t("Not available"))
+        pdf.cell(200, 10, txt=t(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
         pdf.ln(5)
 
         # Rotation Plan
@@ -468,17 +560,17 @@ elif page == "📄 Download Report":
                 next_type = type_order[(current_index + i) % 3]
                 candidates = rotation_cycle[next_type]
                 suggested_crop = np.random.choice(candidates)
-                label = ["Next Season", "Season After", "3rd Season After"][i - 1]
-                pdf.cell(200, 10, txt=clean_pdf_text(f"{label} ({next_type.title()}): {suggested_crop}"), ln=True)
+                label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
+                pdf.cell(200, 10, txt=t(f"{label} ({next_type.title()}): {suggested_crop}"), ln=True)
         else:
-            pdf.cell(200, 10, txt=clean_pdf_text("No detailed rotation cycle available."), ln=True)
+            pdf.cell(200, 10, txt=t("No detailed rotation cycle available."), ln=True)
         pdf.ln(5)
 
         # Fertilizer
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt=clean_pdf_text("Fertilizer Recommendation:"), ln=True)
+        pdf.cell(200, 10, txt=t("Fertilizer Recommendation:"), ln=True)
         pdf.set_font("Arial", size=12)
-        fert = fertilizer_data.get(recommendation.lower(), "No fertilizer info available.")
+        fert = fertilizer_data.get(recommendation.lower(), t("No fertilizer info available."))
         fert = clean_pdf_text(fert)
         pdf.multi_cell(0, 10, txt=fert)
         pdf.ln(5)
@@ -490,22 +582,22 @@ elif page == "📄 Download Report":
             default_price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
             profit = yield_kg * default_price
             pdf.set_font("Arial", 'B', 12)
-            pdf.cell(200, 10, txt=clean_pdf_text("Yield & Profit Forecast:"), ln=True)
+            pdf.cell(200, 10, txt=t("Yield & Profit Forecast:"), ln=True)
             pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt=clean_pdf_text(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
-            pdf.cell(200, 10, txt=clean_pdf_text(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
+            pdf.cell(200, 10, txt=t(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
+            pdf.cell(200, 10, txt=t(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
         else:
-            pdf.cell(200, 10, txt=clean_pdf_text("Yield data not available."), ln=True)
+            pdf.cell(200, 10, txt=t("Yield data not available."), ln=True)
 
         # Save & Download
         pdf_bytes = pdf.output(dest='S').encode('latin-1')
         pdf_buffer = io.BytesIO(pdf_bytes)
 
         st.download_button(
-            label="Download Full Report as PDF",
+            label=t("Download Full Report as PDF"),
             data=pdf_buffer,
             file_name="agrosense_full_report.pdf",
             mime="application/pdf"
         )
     else:
-        st.warning("⚠️ Please generate a recommendation first.")
+        st.warning(t("⚠️ Please generate a recommendation first."))
