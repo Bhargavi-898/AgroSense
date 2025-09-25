@@ -172,48 +172,6 @@ PDF Report:
 
 All recommendations and insights saved in a downloadable report.
 
-📁 File Structure
-Agrosense/
-│
-├─ app.py                  # Main Streamlit application
-├─ data/
-│   ├─ historical_weather.csv
-│   ├─ fertilizer_data.json
-│   └─ yield_data.csv
-├─ models/
-│   └─ crop_recommendation_model.pkl
-├─ utils.py                # Helper functions (weather fetch, translation, PDF generation)
-└─ requirements.txt        # Python dependencies
-
-🔧 Setup Instructions
-
-Clone the repository:
-
-git clone https://github.com/yourusername/agrosense.git
-cd agrosense
-
-
-Create a virtual environment:
-
-python -m venv venv
-source venv/bin/activate   # Linux/Mac
-venv\Scripts\activate      # Windows
-
-
-Install dependencies:
-
-pip install -r requirements.txt
-
-
-Run the app:
-
-streamlit run app.py
-
-
-Open in browser:
-
-The app should open at http://localhost:8501
-
 📈 Benefits
 
 Helps small and large farmers make data-driven decisions.
