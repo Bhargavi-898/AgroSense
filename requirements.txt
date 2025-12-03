@@ -10,3 +10,4 @@ deep-translator
 python-dotenv
 gTTS
 bcrypt
+pymongo
