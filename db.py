@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = "mongodb+srv://Bhargavi:Cyrus2005@cluster0.mongodb.net/agrosense_db?retryWrites=true&w=majority"
 DB_NAME = os.getenv("DB_NAME", "argosense_db")
 
 if not MONGO_URI:
