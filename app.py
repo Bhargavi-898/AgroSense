@@ -7,10 +7,10 @@ import requests
 import datetime
 from fpdf import FPDF
 import io
-from googletrans import Translator
 from gtts import gTTS
 import re
 import bcrypt
+from deep_translator import GoogleTranslator
 
 
 
@@ -88,26 +88,24 @@ def login_page():
 
 
 # 🌐 Language Mapping
-lang_map = {"English": "en", "Telugu": "te", "Hindi": "hi"}
+lang_map = {
+    "English": "en",
+    "Telugu": "te",
+    "Hindi": "hi"
+}
 
 # Sidebar for language selection
 language = st.sidebar.selectbox("🌐 Select Language", options=list(lang_map.keys()), index=0)
-lang_code = lang_map[language]
+lang_code = lang_map[language]   # ← store dynamic language code
 
-# Initialize translator only once
-if "translator" not in st.session_state:
-    st.session_state["translator"] = Translator()
-
-def t(text: str) -> str:
-    """Translate text to the selected language."""
-    if lang_code == "en":  # Default English
-        return text
+# Translation function
+def t(text):
+    """Translate UI text to selected language"""
     try:
-        translated = st.session_state["translator"].translate(text, dest=lang_code)
-        return translated.text
-    except Exception as e:
-        # fallback: return original text
-        return text
+        return GoogleTranslator(source="auto", target=lang_code).translate(text)
+    except:
+        return text   # fallback if translation fails
+
 
 def speak(text):
     tts = gTTS(text=text, lang=lang_code)
