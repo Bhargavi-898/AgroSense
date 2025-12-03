@@ -8,3 +8,4 @@ requests
 fpdf
 deep-translator
 python-dotenv
+gTTS
