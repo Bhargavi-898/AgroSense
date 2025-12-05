@@ -4,16 +4,14 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 import requests
-import datetime
+from datetime import datetime
 from fpdf import FPDF
 import io
 from gtts import gTTS
 import re
 import bcrypt
 from deep_translator import GoogleTranslator
-
-
-
+from db import create_user, get_user_by_email, update_password, history_col
 
 
 # ================== LOGIN SYSTEM ==================
@@ -36,52 +34,64 @@ def login_page():
     choice = st.radio(t("Select Action"), menu)
 
     # ---------------- Login ----------------
+    # ------------- LOGIN -------------
     if choice == t("Login"):
-        email = st.text_input(t("📧 Email"))
-        password = st.text_input(t("🔑 Password"), type="password")
-        if st.button("Login"):
-            user = get_user_by_email(email)
-            if user and bcrypt.checkpw(password.encode("utf-8"), user["password"]):
-                st.session_state["logged_in"] = True
-                st.session_state["current_user"] = email
-                st.success(t("✅ Welcome {email}!"))
-                st.stop()
-            else:
-                st.error(t("❌ Invalid email or password"))
+        with st.form("login_form"):
+            email = st.text_input(t("Email"))
+            password = st.text_input(t("Password"), type="password")
+            submit = st.form_submit_button(t("Login"))
 
-    # ---------------- Register ----------------
+            if submit:
+                user = get_user_by_email(email)
+                if user and bcrypt.checkpw(password.encode("utf-8"), user["password"]):
+                    st.session_state["logged_in"] = True
+                    st.session_state["current_user"] = email
+                    st.success(t(f"Welcome, {email}!"))
+                    st.stop()
+                else:
+                    st.error(t("Invalid email or password"))
+
+
+    # ------------- REGISTER -------------
     elif choice == t("Register"):
-        new_email = st.text_input(t("📧 Enter Email"))
-        new_pass = st.text_input("🔑 Create Password", type="password")
-        if st.button("Register"):
-            if not new_email or not new_pass:
-                st.warning("⚠️ Email and password required")
-            else:
-                hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
-                ok, msg = create_user(new_email, hashed)
-                if ok:
-                    st.success("✅ Registration successful! Please login.")
-                else:
-                    st.warning(f"⚠️ {msg}")
+        with st.form("register_form"):
+            new_email = st.text_input(t("Enter Email"))
+            new_pass = st.text_input(t("Create Password"), type="password")
+            submit = st.form_submit_button(t("Register"))
 
-    # ---------------- Forgot Password ----------------
-    elif choice == "Forgot Password":
-        reset_email = st.text_input("📧 Enter your registered email")
-        new_pass = st.text_input("🔑 New Password", type="password")
-        confirm_pass = st.text_input("🔑 Confirm New Password", type="password")
-
-        if st.button("Reset Password"):
-            if not reset_email or not new_pass or not confirm_pass:
-                st.warning("⚠️ All fields required")
-            elif new_pass != confirm_pass:
-                st.error("❌ Passwords do not match")
-            else:
-                hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
-                ok, msg = update_password(reset_email, hashed)
-                if ok:
-                    st.success("✅ Password reset successful! Please login again.")
+            if submit:
+                if not new_email or not new_pass:
+                    st.warning(t("Email and password required"))
                 else:
-                    st.error(f"❌ {msg}")
+                    hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
+                    ok, msg = create_user(new_email, hashed)
+                    if ok:
+                        st.success(t("Registration successful! Please login."))
+                    else:
+                        st.warning(msg)
+
+
+    # ------------- FORGOT PASSWORD -------------
+    elif choice == t("Forgot Password"):
+        with st.form("forgot_form"):
+            reset_email = st.text_input(t("Enter your registered email"))
+            new_pass = st.text_input(t("New Password"), type="password")
+            confirm_pass = st.text_input(t("Confirm New Password"), type="password")
+            submit = st.form_submit_button(t("Reset Password"))
+
+            if submit:
+                if not reset_email or not new_pass or not confirm_pass:
+                    st.warning(t("All fields required"))
+                elif new_pass != confirm_pass:
+                    st.error(t("Passwords do not match"))
+                else:
+                    hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
+                    ok, msg = update_password(reset_email, hashed)
+                    if ok:
+                        st.success(t("Password reset successful! Please login again."))
+                    else:
+                        st.error(msg)
+
 
 
 # ================== END LOGIN SYSTEM ==================
@@ -126,12 +136,40 @@ st.title("🌾 Agrosense - Smart Crop Recommendation System")
 df = pd.read_csv("Crop_recommendation.csv")
 yield_df = pd.read_csv("yield_price_data.csv")
 
-historical_df = pd.read_csv("historical_data.csv")
 
 X = df.drop('label', axis=1)
 y = df['label']
 model = RandomForestClassifier()
 model.fit(X, y)
+
+# --- helper: convert raw list to DataFrame with the same column names used for training ---
+def make_input_df(values):
+    """
+    Converts a list or 1D array of feature values into a DataFrame
+    with the same column names and dtypes as the training data X.
+
+    Parameters:
+        values (list or 1D array): Feature values in the same order as X.columns
+
+    Returns:
+        pd.DataFrame: DataFrame with one row, ready for prediction
+    """
+    # Ensure it's a list
+    vals = list(values)
+
+    # Create DataFrame with same columns as training data
+    df_in = pd.DataFrame([vals], columns=X.columns)
+
+    # Cast each column to match training data dtype
+    for col in df_in.columns:
+        try:
+            df_in[col] = df_in[col].astype(X[col].dtype)
+        except Exception:
+            # ignore if conversion fails
+            pass
+
+    return df_in
+
 
 fertilizer_data = {
     "rice": "N: 90, P: 40, K: 40 — Apply in 3 splits (basal, tillering, panicle).",
@@ -196,10 +234,120 @@ rotation_rules = {
 }
 # ✅ Move these BEFORE they're used
 rotation_cycle = {
-    "legume": ["gram", "peas", "blackgram", "mungbean", "lentil", "pigeonpeas", "kidneybeans", "mothbeans"],
-    "cereal": ["rice", "wheat", "maize", "sorghum"],
-    "oilseed": ["mustard", "ground nut", "sunflower", "soybean"]
+    "legume": {
+        "description": "Nitrogen fixing crops that improve soil fertility.",
+        "crops": [
+            "gram",
+            "peas",
+            "black gram",
+            "mung bean",
+            "lentil",
+            "pigeon peas",
+            "kidney beans",
+            "moth beans",
+            "cowpea",
+            "soybean",
+            "alfalfa",
+            "green gram",
+            "broad beans",
+            "french beans",
+            "cluster beans"
+        ]
+    },
+
+    "cereal": {
+        "description": "Heavy nutrient-consuming crops (heavy feeders).",
+        "crops": [
+            "rice",
+            "wheat",
+            "maize",
+            "sorghum",
+            "millet",
+            "barley",
+            "oats",
+            "rye",
+            "triticale"
+        ]
+    },
+
+    "oilseed": {
+        "description": "Deep-rooted crops that improve soil structure.",
+        "crops": [
+            "mustard",
+            "groundnut",
+            "sunflower",
+            "soybean",
+            "sesame",
+            "rapeseed",
+            "linseed",
+            "safflower",
+            "castor"
+        ]
+    },
+
+    "root_crops": {
+        "description": "Deep-root crops that help break soil compaction.",
+        "crops": [
+            "carrot",
+            "radish",
+            "turnip",
+            "beetroot",
+            "sweet potato",
+            "tapioca",
+            "cassava",
+            "yam",
+            "potato"
+        ]
+    },
+
+    "vegetables": {
+        "description": "Short-duration crops; good in intermediate cycle.",
+        "fruit_vegetables": [
+            "tomato",
+            "brinjal",
+            "chilli",
+            "pumpkin",
+            "bottle gourd",
+            "bitter gourd",
+            "cucumber"
+        ],
+        "leafy_vegetables": [
+            "spinach",
+            "fenugreek",
+            "lettuce",
+            "coriander"
+        ],
+        "flower_vegetables": [
+            "cauliflower",
+            "cabbage",
+            "broccoli"
+        ]
+    },
+
+    "fodder_crops": {
+        "description": "Soil-restorative crops grown to revive soil.",
+        "crops": [
+            "clover",
+            "berseem",
+            "alfalfa",
+            "sudan grass",
+            "cowpea fodder",
+            "green manure crops",
+            "ryegrass"
+        ]
+    },
+
+    "cash_crops": {
+        "description": "Long-duration crops; placed at start of a cycle.",
+        "crops": [
+            "sugarcane",
+            "cotton",
+            "tobacco",
+            "banana"
+        ]
+    }
 }
+
 
 crop_type_map = {}
 for crop_type, crop_list in rotation_cycle.items():
@@ -315,24 +463,27 @@ elif page == "🌱 Recommend Crop":
             st.session_state['rainfall']
         ]
 
-        probabilities = model.predict_proba([input_data])[0]
+        # --- Convert input list to DataFrame with column names ---
+        input_df = make_input_df(input_data)
+        probabilities = model.predict_proba(input_df)[0]  # now no warning
         top_indices = np.argsort(probabilities)[::-1][:3]
         crops = model.classes_
         recommended_crop = crops[top_indices[0]]
         st.session_state["recommendation"] = recommended_crop
-        
+
         # Store top 3 crops for fertilizer suggestion dropdown
         top_3_crops = [crops[i] for i in top_indices]
         st.session_state["fertilizer_recommendations"] = top_3_crops
 
         st.success(t(f"✅ Best Crop: **{recommended_crop}**"))
+
         # Show Top 3 Crops Pie Chart
         st.write(t("### 🥈 Other Good Options:"))
         for i in top_indices[1:]:   
             st.write(t(f"- {crops[i]} ({round(probabilities[i]*100, 2)}%)"))
 
         # Determine Current Season
-        month = datetime.datetime.now().month
+        month = datetime.now().month
         season = t("Kharif") if 6 <= month <= 9 else t("Rabi") if 10 <= month <= 3 else t("Zaid")
         st.info(t(f"📅 Current Season: **{season}**"))
 
@@ -394,37 +545,62 @@ elif page == "🧪 Fertilizer Suggestion":
                 st.warning(t(f"🔺 Potassium (K) is high by {diff} units. ➤ Avoid adding Potash (K)."))
         else:
             st.warning(t("⚠️ No fertilizer data found for selected crop."))
-
 elif page == "📊 Historical Weather":
     st.header(t("📊 Historical Weather Comparison"))
 
-    city = st.session_state.get("city", "Vijayawada")
-    month = datetime.datetime.now().month
-    hist = historical_df[(historical_df["City"].str.lower() == city.lower()) & (historical_df["Month"] == month)]
+    user = st.session_state['current_user']
+    city = st.session_state.get("city", "")
 
-    if not hist.empty and all(k in st.session_state for k in ["temperature", "humidity", "rainfall"]):
+    # --- Fetch the latest record for this user & city ---
+    hist = history_col.find_one(
+        {"user": user, "city": city},
+        sort=[("timestamp", -1)]  # latest first
+    )
+
+    # --- Check if current session has values ---
+    if all(k in st.session_state for k in ["temperature", "humidity", "rainfall"]):
         current = {
             t("Temperature (°C)"): st.session_state["temperature"],
             t("Humidity (%)"): st.session_state["humidity"],
             t("Rainfall (mm)"): st.session_state["rainfall"]
         }
-        historical = {
-            t("Temperature (°C)"): hist.iloc[0]["Avg_Temp"],
-            t("Humidity (%)"): hist.iloc[0]["Avg_Humidity"],
-            t("Rainfall (mm)"): hist.iloc[0]["Avg_Rainfall"]
-        }
 
-        compare_df = pd.DataFrame([historical, current], index=[t("Historical Avg"), t("Current")])
-        st.dataframe(compare_df)
+        if hist:
+            historical = {
+                t("Temperature (°C)"): hist.get("temperature", 0),
+                t("Humidity (%)"): hist.get("humidity", 0),
+                t("Rainfall (mm)"): hist.get("rainfall", 0)
+            }
 
-        fig, ax = plt.subplots()
-        compare_df.T.plot(kind="bar", ax=ax)
-        plt.title(t(f"Current vs Historical Weather - {city} (Month {month})"))
-        plt.ylabel(t("Value"))
-        plt.xticks(rotation=0)
-        st.pyplot(fig)
+            # --- Display comparison ---
+            compare_df = pd.DataFrame([historical, current], index=[t("Previous Input"), t("Current Input")])
+            st.dataframe(compare_df)
+
+            # Plot
+            fig, ax = plt.subplots()
+            compare_df.T.plot(kind="bar", ax=ax)
+            plt.title(t(f"Current vs Previous Weather - {city}"))
+            plt.ylabel(t("Value"))
+            plt.xticks(rotation=0)
+            st.pyplot(fig)
+        else:
+            st.warning(t("⚠️ No previous data found for this user & city. Please enter data first."))
     else:
-        st.warning(t("⚠️ Make sure you have entered city and fetched weather in the 'Input Data' page."))
+        st.warning(t("⚠️ Please enter your current weather & soil data first."))
+
+    # --- Optional: Save current input to history for next login ---
+    if all(k in st.session_state for k in ["N", "P", "K", "temperature", "humidity", "rainfall"]):
+        history_col.insert_one({
+            "user": user,
+            "city": city,
+            "N": st.session_state["N"],
+            "P": st.session_state["P"],
+            "K": st.session_state["K"],
+            "temperature": st.session_state["temperature"],
+            "humidity": st.session_state["humidity"],
+            "rainfall": st.session_state["rainfall"],
+            "timestamp": datetime.utcnow()
+        })
 
 elif page == "📊 Crop Prediction Insights":
     st.header(t("📊 Top Crop Prediction Insights"))
@@ -440,7 +616,9 @@ elif page == "📊 Crop Prediction Insights":
             st.session_state['ph'],
             st.session_state['rainfall']
         ]
-        probabilities = model.predict_proba([input_data])[0]
+        # --- use DataFrame with same columns as training ---
+        input_df = make_input_df(input_data)
+        probabilities = model.predict_proba(input_df)[0]
         top_indices = np.argsort(probabilities)[::-1][:3]
 
         # Pie Chart
@@ -521,32 +699,42 @@ elif page == "📄 Download Report":
 
     if 'recommendation' in st.session_state:
         recommendation = st.session_state.recommendation
+        
+        # Initialize PDF
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=t("Agrosense Crop Recommendation Report"), ln=True, align='C')
+
+        # Add Unicode font (make sure you copied seguisym.ttf to fonts folder)
+        pdf.add_font('Unicode', '', 'fonts/nirmala.ttc', uni=True)
+        pdf.add_font('Unicode', 'B', 'fonts/nirmala.ttc', uni=True)
+
+
+
+        # Title
+        pdf.set_font('Unicode', 'B', 14)
+        pdf.cell(0, 10, t("Agrosense Crop Recommendation Report"), ln=True, align='C')
         pdf.ln(10)
 
         # Input Data
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt=t("Input Conditions:"), ln=True)
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=t(f"Nitrogen (N): {st.session_state.N}"), ln=True)
-        pdf.cell(200, 10, txt=t(f"Phosphorus (P): {st.session_state.P}"), ln=True)
-        pdf.cell(200, 10, txt=t(f"Potassium (K): {st.session_state.K}"), ln=True)
-        pdf.cell(200, 10, txt=t(f"pH: {st.session_state.ph}"), ln=True)
-        pdf.cell(200, 10, txt=t(f"Temperature: {st.session_state.temperature} °C"), ln=True)
-        pdf.cell(200, 10, txt=t(f"Humidity: {st.session_state.humidity} %"), ln=True)
-        pdf.cell(200, 10, txt=t(f"Rainfall: {st.session_state.rainfall} mm"), ln=True)
+        pdf.set_font('Unicode', 'B', 12)
+        pdf.cell(0, 10, t("Input Conditions:"), ln=True)
+        pdf.set_font('Unicode', '', 12)
+        pdf.cell(0, 10, t(f"Nitrogen (N): {st.session_state.N}"), ln=True)
+        pdf.cell(0, 10, t(f"Phosphorus (P): {st.session_state.P}"), ln=True)
+        pdf.cell(0, 10, t(f"Potassium (K): {st.session_state.K}"), ln=True)
+        pdf.cell(0, 10, t(f"pH: {st.session_state.ph}"), ln=True)
+        pdf.cell(0, 10, t(f"Temperature: {st.session_state.temperature} °C"), ln=True)
+        pdf.cell(0, 10, t(f"Humidity: {st.session_state.humidity} %"), ln=True)
+        pdf.cell(0, 10, t(f"Rainfall: {st.session_state.rainfall} mm"), ln=True)
         pdf.ln(5)
 
         # Recommendation
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt=t("Crop Recommendation:"), ln=True)
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=t(f"Recommended Crop: {recommendation}"), ln=True)
+        pdf.set_font('Unicode', 'B', 12)
+        pdf.cell(0, 10, t("Crop Recommendation:"), ln=True)
+        pdf.set_font('Unicode', '', 12)
+        pdf.cell(0, 10, t(f"Recommended Crop: {recommendation}"), ln=True)
         rotation_crop = rotation_rules.get(recommendation.lower(), t("Not available"))
-        pdf.cell(200, 10, txt=t(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
+        pdf.cell(0, 10, t(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
         pdf.ln(5)
 
         # Rotation Plan
@@ -559,15 +747,15 @@ elif page == "📄 Download Report":
                 candidates = rotation_cycle[next_type]
                 suggested_crop = np.random.choice(candidates)
                 label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
-                pdf.cell(200, 10, txt=t(f"{label} ({next_type.title()}): {suggested_crop}"), ln=True)
+                pdf.cell(0, 10, t(f"{label} ({next_type.title()}): {suggested_crop}"), ln=True)
         else:
-            pdf.cell(200, 10, txt=t("No detailed rotation cycle available."), ln=True)
+            pdf.cell(0, 10, t("No detailed rotation cycle available."), ln=True)
         pdf.ln(5)
 
         # Fertilizer
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt=t("Fertilizer Recommendation:"), ln=True)
-        pdf.set_font("Arial", size=12)
+        pdf.set_font('Unicode', 'B', 12)
+        pdf.cell(0, 10, t("Fertilizer Recommendation:"), ln=True)
+        pdf.set_font('Unicode', '', 12)
         fert = fertilizer_data.get(recommendation.lower(), t("No fertilizer info available."))
         fert = clean_pdf_text(fert)
         pdf.multi_cell(0, 10, txt=fert)
@@ -579,16 +767,16 @@ elif page == "📄 Download Report":
             yield_kg = rec_data.iloc[0]["Avg_Yield_kg_per_acre"]
             default_price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
             profit = yield_kg * default_price
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(200, 10, txt=t("Yield & Profit Forecast:"), ln=True)
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt=t(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
-            pdf.cell(200, 10, txt=t(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
+            pdf.set_font('Unicode', 'B', 12)
+            pdf.cell(0, 10, t("Yield & Profit Forecast:"), ln=True)
+            pdf.set_font('Unicode', '', 12)
+            pdf.cell(0, 10, t(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
+            pdf.cell(0, 10, t(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
         else:
-            pdf.cell(200, 10, txt=t("Yield data not available."), ln=True)
+            pdf.cell(0, 10, txt=t("Yield data not available."), ln=True)
 
         # Save & Download
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+        pdf_bytes = pdf.output(dest='S')
         pdf_buffer = io.BytesIO(pdf_bytes)
 
         st.download_button(

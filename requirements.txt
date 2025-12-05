@@ -5,9 +5,10 @@ scikit-learn
 matplotlib
 seaborn
 requests
-fpdf
+fpdf2
 deep-translator
 python-dotenv
 gTTS
 bcrypt
 pymongo
+pip install -r requirements.txt
