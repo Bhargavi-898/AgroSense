@@ -8,3 +8,5 @@ bcrypt
 matplotlib
 requests
 fpdf
+gtts
+pillow
