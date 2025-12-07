@@ -9,4 +9,6 @@ matplotlib
 requests
 fpdf
 gtts
+deep_translator
 pillow
+scipy
