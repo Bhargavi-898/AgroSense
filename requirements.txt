@@ -2,13 +2,8 @@ streamlit
 pandas
 numpy
 scikit-learn
-matplotlib
-seaborn
-requests
-fpdf2
-deep-translator
-python-dotenv
-gTTS
-bcrypt
 pymongo
-pip install -r requirements.txt
+python-dotenv
+bcrypt
+matplotlib
+requests
