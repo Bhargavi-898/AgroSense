@@ -704,14 +704,9 @@ elif page == "📄 Download Report":
         pdf = FPDF()
         pdf.add_page()
 
-        # Add Unicode font (make sure you copied seguisym.ttf to fonts folder)
-        pdf.add_font('Unicode', '', 'fonts/nirmala.ttc', uni=True)
-        pdf.add_font('Unicode', 'B', 'fonts/nirmala.ttc', uni=True)
-
-
 
         # Title
-        pdf.set_font('Unicode', 'B', 14)
+        pdf.set_font("Arial", "", 14)
         pdf.cell(0, 10, t("Agrosense Crop Recommendation Report"), ln=True, align='C')
         pdf.ln(10)
 
