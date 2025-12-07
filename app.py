@@ -660,40 +660,6 @@ elif page == "📈 Yield & Forecast":
                 speak(t("Expected yield") + f": {yield_kg} kg/acre. " + t("Profit") + f": ₹{profit:,.2f} per acre.")
         else:
             st.warning(t("⚠️ Yield data not available for this crop."))
-elif page == "♻️ Crop Rotation Plan":
-    st.header(t("♻️ Crop Rotation Plan"))
-
-    if "recommendation" not in st.session_state:
-        st.warning(t("⚠️ Please generate a crop recommendation first."))
-    else:
-        recommended_crop = st.session_state["recommendation"]
-        st.success(t(f"✅ Base Crop: **{recommended_crop}**"))
-
-        base_type = crop_type_map.get(recommended_crop.lower())
-        if base_type:
-            type_order = ["legume", "cereal", "oilseed"]
-            current_index = type_order.index(base_type)
-            rotation_plan = []
-
-            for i in range(1, 4):
-                next_type = type_order[(current_index + i) % 3]
-                candidates = rotation_cycle[next_type]
-                suggested_crop = np.random.choice(candidates)
-                season_label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
-                rotation_plan.append((season_label, next_type.capitalize(), suggested_crop))
-
-            st.subheader(t("🔄 Multi-Season Plan"))
-            for label, typ, crop in rotation_plan:
-                st.write(t(f"👉 {label} ({typ}): **{crop.capitalize()}**"))
-        else:
-            st.warning(t("⚠️ No rotation type information available for this crop."))
-
-        rotation_crop = rotation_rules.get(recommended_crop.lower(), None)
-        if rotation_crop:
-            st.info(t(f"📌 Suggested Follow-up Crop (for direct rotation): **{rotation_crop}**"))
-        else:
-            st.warning(t("⚠️ No crop rotation advice available."))
-
 elif page == "📄 Download Report":
     st.header(t("📄 Download Recommendation Report"))
 
@@ -704,21 +670,20 @@ elif page == "📄 Download Report":
         pdf = FPDF()
         pdf.add_page()
 
-        # Add Unicode font (make sure you copied seguisym.ttf to fonts folder)
-        pdf.add_font('Unicode', '', 'fonts/nirmala.ttf', uni=True)
-        pdf.add_font('Unicode', 'B', 'fonts/nirmala.ttf', uni=True)
-
-
+        # Add Nirmala font (correct way)
+        pdf.add_font('Nirmala', '', 'fonts/nirmala.ttf', uni=True)
+        pdf.add_font('Nirmala', 'B', 'fonts/nirmala.ttf', uni=True)
 
         # Title
-        pdf.set_font('Unicode', 'B', 14)
+        pdf.set_font('Nirmala', 'B', 14)
         pdf.cell(0, 10, t("Agrosense Crop Recommendation Report"), ln=True, align='C')
         pdf.ln(10)
 
         # Input Data
-        pdf.set_font('Unicode', 'B', 12)
+        pdf.set_font('Nirmala', 'B', 12)
         pdf.cell(0, 10, t("Input Conditions:"), ln=True)
-        pdf.set_font('Unicode', '', 12)
+
+        pdf.set_font('Nirmala', '', 12)
         pdf.cell(0, 10, t(f"Nitrogen (N): {st.session_state.N}"), ln=True)
         pdf.cell(0, 10, t(f"Phosphorus (P): {st.session_state.P}"), ln=True)
         pdf.cell(0, 10, t(f"Potassium (K): {st.session_state.K}"), ln=True)
@@ -729,9 +694,10 @@ elif page == "📄 Download Report":
         pdf.ln(5)
 
         # Recommendation
-        pdf.set_font('Unicode', 'B', 12)
+        pdf.set_font('Nirmala', 'B', 12)
         pdf.cell(0, 10, t("Crop Recommendation:"), ln=True)
-        pdf.set_font('Unicode', '', 12)
+
+        pdf.set_font('Nirmala', '', 12)
         pdf.cell(0, 10, t(f"Recommended Crop: {recommendation}"), ln=True)
         rotation_crop = rotation_rules.get(recommendation.lower(), t("Not available"))
         pdf.cell(0, 10, t(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
@@ -742,6 +708,7 @@ elif page == "📄 Download Report":
         if base_type:
             type_order = ["legume", "cereal", "oilseed"]
             current_index = type_order.index(base_type)
+
             for i in range(1, 4):
                 next_type = type_order[(current_index + i) % 3]
                 candidates = rotation_cycle[next_type]
@@ -753,11 +720,13 @@ elif page == "📄 Download Report":
         pdf.ln(5)
 
         # Fertilizer
-        pdf.set_font('Unicode', 'B', 12)
+        pdf.set_font('Nirmala', 'B', 12)
         pdf.cell(0, 10, t("Fertilizer Recommendation:"), ln=True)
-        pdf.set_font('Unicode', '', 12)
+
+        pdf.set_font('Nirmala', '', 12)
         fert = fertilizer_data.get(recommendation.lower(), t("No fertilizer info available."))
         fert = clean_pdf_text(fert)
+    
         pdf.multi_cell(0, 10, txt=fert)
         pdf.ln(5)
 
@@ -767,9 +736,11 @@ elif page == "📄 Download Report":
             yield_kg = rec_data.iloc[0]["Avg_Yield_kg_per_acre"]
             default_price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
             profit = yield_kg * default_price
-            pdf.set_font('Unicode', 'B', 12)
+
+            pdf.set_font('Nirmala', 'B', 12)
             pdf.cell(0, 10, t("Yield & Profit Forecast:"), ln=True)
-            pdf.set_font('Unicode', '', 12)
+
+            pdf.set_font('Nirmala', '', 12)
             pdf.cell(0, 10, t(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
             pdf.cell(0, 10, t(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
         else:
