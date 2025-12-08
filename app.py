@@ -12,6 +12,7 @@ import re
 import bcrypt
 from deep_translator import GoogleTranslator
 from db import create_user, get_user_by_email, update_password, history_col
+import os
 
 
 # ================== LOGIN SYSTEM ==================
@@ -671,10 +672,13 @@ elif page == "📄 Download Report":
         pdf.add_page()
 
         # Add Nirmala font (correct way)
-        pdf.add_font('Nirmala', '', 'fonts/nirmala.ttf', uni=True)
-        pdf.add_font('Nirmala', 'B', 'fonts/nirmala.ttf', uni=True)
 
-        # Title
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        FONT_PATH = os.path.join(BASE_DIR, "fonts", "nirmala.ttf")
+
+        pdf.add_font("Nirmala", "", FONT_PATH, uni=True)
+        pdf.add_font("Nirmala", "B", FONT_PATH, uni=True)
+
         pdf.set_font('Nirmala', 'B', 14)
         pdf.cell(0, 10, t("Agrosense Crop Recommendation Report"), ln=True, align='C')
         pdf.ln(10)
