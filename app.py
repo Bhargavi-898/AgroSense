@@ -821,15 +821,33 @@ elif page == "📄 Download Report":
             pdf.cell(0, 10, t("Yield data not available."), ln=True)
 
         # Save & Download
-        pdf_bytes = bytes(pdf.output(dest="S"))
-        pdf_buffer = io.BytesIO(pdf_bytes)
+        # ---------- Save & Download (Fixed, Safe for all systems) ----------
+        raw_pdf = pdf.output(dest="S")   # could be bytes, bytearray, or str
 
+        # Convert safely
+        if isinstance(raw_pdf, bytes):
+            pdf_bytes = raw_pdf
+        elif isinstance(raw_pdf, bytearray):
+            pdf_bytes = bytes(raw_pdf)
+        elif isinstance(raw_pdf, str):
+            # fpdf sometimes returns a latin-1 encoded string representing raw bytes
+            pdf_bytes = raw_pdf.encode("latin1", errors="replace")
+        else:
+            # Final fallback (extremely rare)
+            pdf_bytes = bytes(raw_pdf)
+
+        # Create buffer
+        pdf_buffer = io.BytesIO(pdf_bytes)
+        pdf_buffer.seek(0)
+
+        # Download button
         st.download_button(
             label=t("Download Full Report as PDF"),
             data=pdf_buffer,
             file_name="agrosense_full_report.pdf",
             mime="application/pdf"
         )
+
 
     else:
         st.warning(t("⚠️ Please generate a recommendation first."))
