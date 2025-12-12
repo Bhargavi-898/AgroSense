@@ -15,7 +15,20 @@ from db import create_user, get_user_by_email, update_password, history_col
 import os
 
 
-# ================== LOGIN SYSTEM ==================
+
+
+
+
+import bcrypt
+from db import create_user, get_user_by_email, update_password
+
+GMAIL_PATTERN = r"^[a-zA-Z0-9._%+-]+@gmail\.com$"
+
+def is_valid_gmail(email):
+    return re.match(GMAIL_PATTERN, email) is not None
+
+
+# Default session state users
 if "users" not in st.session_state:
     st.session_state["users"] = {"admin": "admin123"}  # default user
 if "logged_in" not in st.session_state:
@@ -24,18 +37,13 @@ if "current_user" not in st.session_state:
     st.session_state["current_user"] = None
 
 
-
-import bcrypt
-from db import create_user, get_user_by_email, update_password
-
 def login_page():
     st.title(t("🔐 Login to Agrosense"))
 
     menu = t(["Login", "Register", "Forgot Password"])
     choice = st.radio(t("Select Action"), menu)
 
-    # ---------------- Login ----------------
-    # ------------- LOGIN -------------
+    # ---------------- LOGIN ----------------
     if choice == t("Login"):
         with st.form("login_form"):
             email = st.text_input(t("Email"))
@@ -43,7 +51,14 @@ def login_page():
             submit = st.form_submit_button(t("Login"))
 
             if submit:
+
+                # Gmail domain validation
+                if not is_valid_gmail(email):
+                    st.error(t("Email must end with @gmail.com"))
+                    st.stop()
+
                 user = get_user_by_email(email)
+
                 if user and bcrypt.checkpw(password.encode("utf-8"), user["password"]):
                     st.session_state["logged_in"] = True
                     st.session_state["current_user"] = email
@@ -52,8 +67,7 @@ def login_page():
                 else:
                     st.error(t("Invalid email or password"))
 
-
-    # ------------- REGISTER -------------
+    # ---------------- REGISTER ----------------
     elif choice == t("Register"):
         with st.form("register_form"):
             new_email = st.text_input(t("Enter Email"))
@@ -61,18 +75,25 @@ def login_page():
             submit = st.form_submit_button(t("Register"))
 
             if submit:
+
                 if not new_email or not new_pass:
                     st.warning(t("Email and password required"))
+                    st.stop()
+
+                # Gmail validation
+                if not is_valid_gmail(new_email):
+                    st.error(t("Email must end with @gmail.com"))
+                    st.stop()
+
+                hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
+                ok, msg = create_user(new_email, hashed)
+
+                if ok:
+                    st.success(t("Registration successful! Please login."))
                 else:
-                    hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
-                    ok, msg = create_user(new_email, hashed)
-                    if ok:
-                        st.success(t("Registration successful! Please login."))
-                    else:
-                        st.warning(msg)
+                    st.warning(msg)
 
-
-    # ------------- FORGOT PASSWORD -------------
+    # ---------------- FORGOT PASSWORD ----------------
     elif choice == t("Forgot Password"):
         with st.form("forgot_form"):
             reset_email = st.text_input(t("Enter your registered email"))
@@ -81,17 +102,28 @@ def login_page():
             submit = st.form_submit_button(t("Reset Password"))
 
             if submit:
+
                 if not reset_email or not new_pass or not confirm_pass:
                     st.warning(t("All fields required"))
-                elif new_pass != confirm_pass:
+                    st.stop()
+
+                # Gmail validation
+                if not is_valid_gmail(reset_email):
+                    st.error(t("Email must end with @gmail.com"))
+                    st.stop()
+
+                if new_pass != confirm_pass:
                     st.error(t("Passwords do not match"))
+                    st.stop()
+
+                hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
+                ok, msg = update_password(reset_email, hashed)
+
+                if ok:
+                    st.success(t("Password reset successful! Please login again."))
                 else:
-                    hashed = bcrypt.hashpw(new_pass.encode("utf-8"), bcrypt.gensalt())
-                    ok, msg = update_password(reset_email, hashed)
-                    if ok:
-                        st.success(t("Password reset successful! Please login again."))
-                    else:
-                        st.error(msg)
+                    st.error(msg)
+
 
 
 
@@ -661,6 +693,44 @@ elif page == "📈 Yield & Forecast":
                 speak(t("Expected yield") + f": {yield_kg} kg/acre. " + t("Profit") + f": ₹{profit:,.2f} per acre.")
         else:
             st.warning(t("⚠️ Yield data not available for this crop."))
+
+
+
+elif page == "♻️ Crop Rotation Plan":
+    st.header(t("♻️ Crop Rotation Plan"))
+
+    if "recommendation" not in st.session_state:
+        st.warning(t("⚠️ Please generate a crop recommendation first."))
+    else:
+        recommended_crop = st.session_state["recommendation"]
+        st.success(t(f"✅ Base Crop: **{recommended_crop}**"))
+
+        base_type = crop_type_map.get(recommended_crop.lower())
+        if base_type:
+            type_order = ["legume", "cereal", "oilseed"]
+            current_index = type_order.index(base_type)
+            rotation_plan = []
+
+            for i in range(1, 4):
+                next_type = type_order[(current_index + i) % 3]
+                candidates = rotation_cycle[next_type]
+                suggested_crop = np.random.choice(candidates)
+                season_label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
+                rotation_plan.append((season_label, next_type.capitalize(), suggested_crop))
+
+            st.subheader(t("🔄 Multi-Season Plan"))
+            for label, typ, crop in rotation_plan:
+                st.write(t(f"👉 {label} ({typ}): **{crop.capitalize()}**"))
+        else:
+            st.warning(t("⚠️ No rotation type information available for this crop."))
+
+        rotation_crop = rotation_rules.get(recommended_crop.lower(), None)
+        if rotation_crop:
+            st.info(t(f"📌 Suggested Follow-up Crop (for direct rotation): **{rotation_crop}**"))
+        else:
+            st.warning(t("⚠️ No crop rotation advice available."))
+
+
 elif page == "📄 Download Report":
     st.header(t("📄 Download Recommendation Report"))
 
@@ -671,23 +741,22 @@ elif page == "📄 Download Report":
         pdf = FPDF()
         pdf.add_page()
 
-        # Add Nirmala font (correct way)
-
+        # Load font (DejaVuSans)
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        FONT_PATH = os.path.join(BASE_DIR, "fonts", "nirmala.ttf")
+        FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans.ttf")
 
-        pdf.add_font("Nirmala", "", FONT_PATH, uni=True)
-        pdf.add_font("Nirmala", "B", FONT_PATH, uni=True)
+        pdf.add_font("DejaVu", "", FONT_PATH, uni=True)
+        pdf.add_font("DejaVu", "B", FONT_PATH, uni=True)
 
-        pdf.set_font('Nirmala', 'B', 14)
+        pdf.set_font("DejaVu", "B", 14)
         pdf.cell(0, 10, t("Agrosense Crop Recommendation Report"), ln=True, align='C')
         pdf.ln(10)
 
         # Input Data
-        pdf.set_font('Nirmala', 'B', 12)
+        pdf.set_font("DejaVu", "B", 12)
         pdf.cell(0, 10, t("Input Conditions:"), ln=True)
 
-        pdf.set_font('Nirmala', '', 12)
+        pdf.set_font("DejaVu", "", 12)
         pdf.cell(0, 10, t(f"Nitrogen (N): {st.session_state.N}"), ln=True)
         pdf.cell(0, 10, t(f"Phosphorus (P): {st.session_state.P}"), ln=True)
         pdf.cell(0, 10, t(f"Potassium (K): {st.session_state.K}"), ln=True)
@@ -698,10 +767,10 @@ elif page == "📄 Download Report":
         pdf.ln(5)
 
         # Recommendation
-        pdf.set_font('Nirmala', 'B', 12)
+        pdf.set_font("DejaVu", "B", 12)
         pdf.cell(0, 10, t("Crop Recommendation:"), ln=True)
 
-        pdf.set_font('Nirmala', '', 12)
+        pdf.set_font("DejaVu", "", 12)
         pdf.cell(0, 10, t(f"Recommended Crop: {recommendation}"), ln=True)
         rotation_crop = rotation_rules.get(recommendation.lower(), t("Not available"))
         pdf.cell(0, 10, t(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
@@ -721,16 +790,17 @@ elif page == "📄 Download Report":
                 pdf.cell(0, 10, t(f"{label} ({next_type.title()}): {suggested_crop}"), ln=True)
         else:
             pdf.cell(0, 10, t("No detailed rotation cycle available."), ln=True)
+
         pdf.ln(5)
 
         # Fertilizer
-        pdf.set_font('Nirmala', 'B', 12)
+        pdf.set_font("DejaVu", "B", 12)
         pdf.cell(0, 10, t("Fertilizer Recommendation:"), ln=True)
 
-        pdf.set_font('Nirmala', '', 12)
+        pdf.set_font("DejaVu", "", 12)
         fert = fertilizer_data.get(recommendation.lower(), t("No fertilizer info available."))
         fert = clean_pdf_text(fert)
-    
+
         pdf.multi_cell(0, 10, txt=fert)
         pdf.ln(5)
 
@@ -741,17 +811,17 @@ elif page == "📄 Download Report":
             default_price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
             profit = yield_kg * default_price
 
-            pdf.set_font('Nirmala', 'B', 12)
+            pdf.set_font("DejaVu", "B", 12)
             pdf.cell(0, 10, t("Yield & Profit Forecast:"), ln=True)
 
-            pdf.set_font('Nirmala', '', 12)
+            pdf.set_font("DejaVu", "", 12)
             pdf.cell(0, 10, t(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
             pdf.cell(0, 10, t(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
         else:
-            pdf.cell(0, 10, txt=t("Yield data not available."), ln=True)
+            pdf.cell(0, 10, t("Yield data not available."), ln=True)
 
         # Save & Download
-        pdf_bytes = pdf.output(dest='S')
+        pdf_bytes = bytes(pdf.output(dest="S"))
         pdf_buffer = io.BytesIO(pdf_bytes)
 
         st.download_button(
@@ -760,5 +830,6 @@ elif page == "📄 Download Report":
             file_name="agrosense_full_report.pdf",
             mime="application/pdf"
         )
+
     else:
         st.warning(t("⚠️ Please generate a recommendation first."))
