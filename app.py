@@ -435,7 +435,7 @@ with st.sidebar:
     # Logout button at very bottom
     if st.button("🚪 Logout"):
         st.session_state.clear()
-        st.experimental_rerun()
+        st.rerun()
 
 
 # Home
