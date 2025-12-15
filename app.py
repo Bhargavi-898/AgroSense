@@ -410,15 +410,11 @@ def get_weather(city):
 if not st.session_state["logged_in"]:
     login_page()
     st.stop()  # stop execution until logged in
-else:
-    st.sidebar.write(f"👋 Logged in as: {st.session_state['current_user']}")
-    if st.sidebar.button("🚪 Logout"):
-        st.session_state["logged_in"] = False
-        st.session_state["current_user"] = None
-        st.stop()
 
-    # Sidebar Navigation
-    page = st.sidebar.radio("Navigate", [
+# ================= SIDEBAR =================
+with st.sidebar:
+    # Navigation FIRST
+    page = st.radio("Navigate", [
         "🏠 Home", 
         "🌦️ Input Data", 
         "🌱 Recommend Crop", 
@@ -429,6 +425,17 @@ else:
         "📊 Crop Prediction Insights",
         "📄 Download Report"
     ])
+
+    st.markdown("---")  # separator line
+
+    # User info at bottom
+    st.write(f"👋 Logged in as:")
+    st.caption(st.session_state["current_user"])
+
+    # Logout button at very bottom
+    if st.button("🚪 Logout"):
+        st.session_state.clear()
+        st.experimental_rerun()
 
 
 # Home
