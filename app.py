@@ -13,12 +13,7 @@ import bcrypt
 from deep_translator import GoogleTranslator
 from db import create_user, get_user_by_email, update_password, history_col
 import os
-
-
-
-
-
-
+import tempfile
 import bcrypt
 from db import create_user, get_user_by_email, update_password
 
@@ -151,10 +146,16 @@ def t(text):
 
 
 def speak(text):
-    tts = gTTS(text=text, lang=lang_code)
-    tts.save("voice.mp3")
-    audio_file = open("voice.mp3", "rb")
-    st.audio(audio_file.read(), format="audio/mp3")
+    if not text:
+        st.warning("No output message available")
+        return
+
+    tts = gTTS(text=text, lang='en')
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+        tts.save(fp.name)
+        st.audio(fp.name)
+
+
 def clean_pdf_text(text):
     # Replace long dash with hyphen
     text = text.replace("—", "-")
@@ -503,29 +504,54 @@ elif page == "🌱 Recommend Crop":
             st.session_state['rainfall']
         ]
 
-        # --- Convert input list to DataFrame with column names ---
+        # Convert input list to DataFrame
         input_df = make_input_df(input_data)
-        probabilities = model.predict_proba(input_df)[0]  # now no warning
+
+        # Predict probabilities
+        probabilities = model.predict_proba(input_df)[0]
         top_indices = np.argsort(probabilities)[::-1][:3]
         crops = model.classes_
-        recommended_crop = crops[top_indices[0]]
-        st.session_state["recommendation"] = recommended_crop
 
-        # Store top 3 crops for fertilizer suggestion dropdown
+        # Top 3 crops
         top_3_crops = [crops[i] for i in top_indices]
+
+        # Store in session state (IMPORTANT)
+        st.session_state["recommendation"] = top_3_crops
         st.session_state["fertilizer_recommendations"] = top_3_crops
 
-        st.success(t(f"✅ Best Crop: **{recommended_crop}**"))
+        # Best crop
+        best_crop = top_3_crops[0]
 
-        # Show Top 3 Crops Pie Chart
-        st.write(t("### 🥈 Other Good Options:"))
-        for i in top_indices[1:]:   
-            st.write(t(f"- {crops[i]} ({round(probabilities[i]*100, 2)}%)"))
+        st.success(t(f"✅ Best Crop: **{best_crop}**"))
 
-        # Determine Current Season
+        # Show top 3 crops
+        st.write(t("### 🌾 Top 3 Recommended Crops:"))
+        for i, idx in enumerate(top_indices):
+            st.write(
+                t(f"{i+1}. {crops[idx]} ({round(probabilities[idx]*100, 2)}%)")
+            )
+
+        # 🔊 Voice Output (FIXED)
+        voice_text = (
+            "The top recommended crops based on your soil and weather conditions are "
+            + ", ".join(top_3_crops)
+        )
+
+        if st.button("🔊 Listen Crop Recommendation"):
+            speak(voice_text)
+
+        # Determine Season
         month = datetime.now().month
-        season = t("Kharif") if 6 <= month <= 9 else t("Rabi") if 10 <= month <= 3 else t("Zaid")
+        season = (
+            t("Kharif") if 6 <= month <= 9
+            else t("Rabi") if month >= 10 or month <= 3
+            else t("Zaid")
+        )
+
         st.info(t(f"📅 Current Season: **{season}**"))
+
+    else:
+        st.warning(t("⚠️ Please enter soil and weather details first"))
 
         
 
@@ -533,58 +559,95 @@ elif page == "🌱 Recommend Crop":
 elif page == "🧪 Fertilizer Suggestion":
     st.header(t("🧪 Fertilizer Suggestion Based on Your Input"))
 
-    # Check if input and recommendation data exists
+    # Step 1: Validation
     if 'N' not in st.session_state or 'fertilizer_recommendations' not in st.session_state:
         st.warning(t("⚠️ Please complete input and crop recommendation first."))
-    else:
-        top_crops = st.session_state['fertilizer_recommendations']  # list of top 3 crops
-        selected_crop = st.selectbox(t("🌾 Select a crop from recommended list"), top_crops)
+        st.stop()
 
+    # Step 2: Select crop
+    top_crops = st.session_state['fertilizer_recommendations']
+    selected_crop = st.selectbox(
+        t("🌾 Select a crop from recommended list"),
+        top_crops,
+        key="selected_fert_crop"
+    )
+
+    # Step 3: Show fertilizer recommendation
     if st.button(t("📊 Show Fertilizer Recommendation")):
-        # Get your input values
+        import re
+
         N_input = st.session_state["N"]
         P_input = st.session_state["P"]
         K_input = st.session_state["K"]
 
-        import re
         rec = fertilizer_data.get(selected_crop.lower(), "")
         match = re.findall(r"N:\s*(\d+),\s*P:\s*(\d+),\s*K:\s*(\d+)", rec)
-        
-        if match:
-            rec_n, rec_p, rec_k = map(int, match[0])
-            st.write(t(f"**Recommended NPK for {selected_crop.capitalize()}:** N: {rec_n}, P: {rec_p}, K: {rec_k} — {rec.split('—')[-1].strip()}"))
 
-            # Nitrogen
-            if abs(N_input - rec_n) <= 10:
-                st.success(t("✅ Nitrogen (N) is optimal."))
-            elif N_input < rec_n:
-                diff = rec_n - N_input
-                st.error(t(f"🔻 Nitrogen (N) is low by {diff} units. ➤ Suggest: Apply **Urea** or **DAP**."))
-            else:
-                diff = N_input - rec_n
-                st.warning(t(f"🔺 Nitrogen (N) is high by {diff} units. ➤ Avoid further nitrogen application."))
-
-            # Phosphorus
-            if abs(P_input - rec_p) <= 10:
-                st.success(t("✅ Phosphorus (P) is optimal."))
-            elif P_input < rec_p:
-                diff = rec_p - P_input
-                st.error(t(f"🔻 Phosphorus (P) is low by {diff} units. ➤ Suggest: Apply **SSP** or **DAP**."))
-            else:
-                diff = P_input - rec_p
-                st.warning(t(f"🔺 Phosphorus (P) is high by {diff} units. ➤ Avoid excess P fertilizers."))
-
-            # Potassium
-            if abs(K_input - rec_k) <= 10:
-                st.success(t("✅ Potassium (K) is optimal."))
-            elif K_input < rec_k:
-                diff = rec_k - K_input
-                st.error(t(f"🔻 Potassium (K) is low by {diff} units. ➤ Suggest: Apply **MOP**."))
-            else:
-                diff = K_input - rec_k
-                st.warning(t(f"🔺 Potassium (K) is high by {diff} units. ➤ Avoid adding Potash (K)."))
-        else:
+        if not match:
             st.warning(t("⚠️ No fertilizer data found for selected crop."))
+            st.session_state["fertilizer_result"] = None
+            st.stop()
+
+        rec_n, rec_p, rec_k = map(int, match[0])
+        advice = rec.split("—")[-1].strip()
+
+        # Save result in session
+        st.session_state["fertilizer_result"] = {
+            "crop": selected_crop,
+            "N": rec_n,
+            "P": rec_p,
+            "K": rec_k,
+            "advice": advice
+        }
+
+    # Step 4: Display fertilizer result (persistent)
+    if "fertilizer_result" in st.session_state and st.session_state["fertilizer_result"]:
+        res = st.session_state["fertilizer_result"]
+
+        st.subheader(t(f"🌿 Fertilizer Recommendation for {res['crop']}"))
+        st.write(
+            t(f"**Recommended NPK:** N: {res['N']}, P: {res['P']}, K: {res['K']} — {res['advice']}")
+        )
+
+        # 🔊 Voice output (NO RESET NOW)
+        fert_voice = (
+            f"For {res['crop']}, the recommended fertilizer values are "
+            f"Nitrogen {res['N']}, Phosphorus {res['P']}, and Potassium {res['K']}. "
+            f"{res['advice']}"
+        )
+
+        if st.button("🔊 Listen Fertilizer Advice"):
+            speak(fert_voice)
+
+        # --- Compare with input values ---
+        N_input = st.session_state["N"]
+        P_input = st.session_state["P"]
+        K_input = st.session_state["K"]
+
+        # Nitrogen
+        if abs(N_input - res["N"]) <= 10:
+            st.success(t("✅ Nitrogen (N) is optimal."))
+        elif N_input < res["N"]:
+            st.error(t(f"🔻 Nitrogen (N) is low by {res['N'] - N_input} units. ➤ Apply **Urea / DAP**."))
+        else:
+            st.warning(t(f"🔺 Nitrogen (N) is high by {N_input - res['N']} units. Avoid more N."))
+
+        # Phosphorus
+        if abs(P_input - res["P"]) <= 10:
+            st.success(t("✅ Phosphorus (P) is optimal."))
+        elif P_input < res["P"]:
+            st.error(t(f"🔻 Phosphorus (P) is low by {res['P'] - P_input} units. ➤ Apply **SSP / DAP**."))
+        else:
+            st.warning(t(f"🔺 Phosphorus (P) is high by {P_input - res['P']} units. Avoid excess P."))
+
+        # Potassium
+        if abs(K_input - res["K"]) <= 10:
+            st.success(t("✅ Potassium (K) is optimal."))
+        elif K_input < res["K"]:
+            st.error(t(f"🔻 Potassium (K) is low by {res['K'] - K_input} units. ➤ Apply **MOP**."))
+        else:
+            st.warning(t(f"🔺 Potassium (K) is high by {K_input - res['K']} units. Avoid Potash."))
+
 elif page == "📊 Historical Weather":
     st.header(t("📊 Historical Weather Comparison"))
 
