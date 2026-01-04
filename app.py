@@ -741,28 +741,45 @@ elif page == "📈 Yield & Forecast":
     if "recommendation" not in st.session_state:
         st.warning("⚠️ Please generate a crop recommendation first.")
         st.stop()
+
+    # ✅ Get recommendation
+    recommended_crop = st.session_state["recommendation"]
+
+    # 🔒 FIX: Handle list vs string
+    if isinstance(recommended_crop, list):
+        recommended_crop = recommended_crop[0]
+
+    # ✅ Safe filtering
+    rec_data = yield_df[
+        yield_df["Crop"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        == recommended_crop.lower().strip()
+    ]
+
+    if not rec_data.empty:
+        yield_kg = float(rec_data.iloc[0]["Avg_Yield_kg_per_acre"])
+        default_price = float(rec_data.iloc[0]["Market_Price_Rs_per_kg"])
+
+        price_per_kg = st.number_input(
+            "Enter Market Price (₹/kg)",
+            value=default_price
+        )
+
+        profit = yield_kg * price_per_kg
+
+        st.success(f"📊 Expected Yield: **{yield_kg} kg/acre**")
+        st.success(f"💰 Estimated Profit: **₹{profit:,.2f} per acre**")
+
+        if st.button("🔊 Listen to Forecast"):
+            speak(
+                f"Expected yield is {yield_kg} kilograms per acre. "
+                f"Estimated profit is rupees {profit:.2f} per acre."
+            )
+
     else:
-        recommended_crop = st.session_state["recommendation"]
-        rec_data = yield_df[yield_df["Crop"].str.lower() == recommended_crop.lower()]
-
-        if not rec_data.empty:
-            yield_kg = rec_data.iloc[0]["Avg_Yield_kg_per_acre"]
-            default_price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
-            price_per_kg = st.number_input(t("Enter Market Price (₹/kg)"), value=float(default_price))
-
-            profit = yield_kg * price_per_kg
-
-            st.success(t(f"📊 Expected Yield: **{yield_kg} kg/acre**"))
-            st.success(t(f"💰 Estimated Profit: **₹{profit:,.2f} per acre**"))
-
-            # Optional: Voice output
-            if language != "English":
-                speak(f"Expected yield is {yield_kg} kg per acre and estimated profit is ₹{profit:.2f}")
-
-            if st.button(t("🔊 Listen to Forecast")):
-                speak(t("Expected yield") + f": {yield_kg} kg/acre. " + t("Profit") + f": ₹{profit:,.2f} per acre.")
-        else:
-            st.warning(t("⚠️ Yield data not available for this crop."))
+        st.warning("⚠️ Yield data not available for this crop.")
 
 
 
@@ -771,153 +788,178 @@ elif page == "♻️ Crop Rotation Plan":
 
     if "recommendation" not in st.session_state:
         st.warning(t("⚠️ Please generate a crop recommendation first."))
-    else:
-        recommended_crop = st.session_state["recommendation"]
-        st.success(t(f"✅ Base Crop: **{recommended_crop}**"))
+        st.stop()
 
-        base_type = crop_type_map.get(recommended_crop.lower())
-        if base_type:
-            type_order = ["legume", "cereal", "oilseed"]
-            current_index = type_order.index(base_type)
-            rotation_plan = []
+    # --- Normalize recommended crop ---
+    recommended_crop = st.session_state.get("recommendation")
+    if isinstance(recommended_crop, list):
+        recommended_crop = recommended_crop[0]
+    recommended_crop = str(recommended_crop).strip().lower()
 
-            for i in range(1, 4):
-                next_type = type_order[(current_index + i) % 3]
-                candidates = rotation_cycle[next_type]
+    st.success(t(f"✅ Base Crop: **{recommended_crop.capitalize()}**"))
+
+    # --- Crop type mapping ---
+    base_type = crop_type_map.get(recommended_crop)
+
+    if base_type:
+        type_order = ["legume", "cereal", "oilseed"]
+        current_index = type_order.index(base_type)
+        rotation_plan = []
+
+        for i in range(1, 4):
+            next_type = type_order[(current_index + i) % len(type_order)]
+            candidates = rotation_cycle.get(next_type, [])
+
+            if candidates:
                 suggested_crop = np.random.choice(candidates)
-                season_label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
-                rotation_plan.append((season_label, next_type.capitalize(), suggested_crop))
+                season_label = [
+                    t("Next Season"),
+                    t("Season After"),
+                    t("3rd Season After")
+                ][i - 1]
 
-            st.subheader(t("🔄 Multi-Season Plan"))
-            for label, typ, crop in rotation_plan:
-                st.write(t(f"👉 {label} ({typ}): **{crop.capitalize()}**"))
-        else:
-            st.warning(t("⚠️ No rotation type information available for this crop."))
+                rotation_plan.append(
+                    (season_label, next_type.capitalize(), suggested_crop.capitalize())
+                )
 
-        rotation_crop = rotation_rules.get(recommended_crop.lower(), None)
-        if rotation_crop:
-            st.info(t(f"📌 Suggested Follow-up Crop (for direct rotation): **{rotation_crop}**"))
-        else:
-            st.warning(t("⚠️ No crop rotation advice available."))
+        st.subheader(t("🔄 Multi-Season Plan"))
+        for label, typ, crop in rotation_plan:
+            st.write(t(f"👉 {label} ({typ}): **{crop}**"))
+    else:
+        st.warning(t("⚠️ No rotation type information available for this crop."))
 
+    # --- Direct rotation rule ---
+    rotation_crop = rotation_rules.get(recommended_crop)
+    if rotation_crop:
+        st.info(t(f"📌 Suggested Follow-up Crop: **{rotation_crop.capitalize()}**"))
+    else:
+        st.warning(t("⚠️ No crop rotation advice available."))
 
 elif page == "📄 Download Report":
     st.header(t("📄 Download Recommendation Report"))
 
-    if 'recommendation' in st.session_state:
-        recommendation = st.session_state.recommendation
-        
-        # Initialize PDF
-        pdf = FPDF()
-        pdf.add_page()
+    if "recommendation" not in st.session_state:
+        st.warning(t("⚠️ Please generate a recommendation first."))
+        st.stop()
 
-        # Load font (DejaVuSans)
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans.ttf")
+    # ---------- Normalize Recommendation (CRITICAL FIX) ----------
+    recommendation = st.session_state.get("recommendation")
 
-        pdf.add_font("DejaVu", "", FONT_PATH, uni=True)
-        pdf.add_font("DejaVu", "B", FONT_PATH, uni=True)
+    if isinstance(recommendation, list):
+        recommendation = recommendation[0]
 
-        pdf.set_font("DejaVu", "B", 14)
-        pdf.cell(0, 10, t("Agrosense Crop Recommendation Report"), ln=True, align='C')
-        pdf.ln(10)
+    recommendation = str(recommendation).strip().lower()
 
-        # Input Data
+    # ---------- Initialize PDF ----------
+    pdf = FPDF()
+    pdf.add_page()
+
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans.ttf")
+
+    pdf.add_font("DejaVu", "", FONT_PATH, uni=True)
+    pdf.add_font("DejaVu", "B", FONT_PATH, uni=True)
+
+    pdf.set_font("DejaVu", "B", 14)
+    pdf.cell(0, 10, t("AgroSense Crop Recommendation Report"), ln=True, align="C")
+    pdf.ln(8)
+
+    # ---------- Input Conditions ----------
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 10, t("Input Conditions:"), ln=True)
+
+    pdf.set_font("DejaVu", "", 11)
+    pdf.cell(0, 8, f"N: {st.session_state.N}", ln=True)
+    pdf.cell(0, 8, f"P: {st.session_state.P}", ln=True)
+    pdf.cell(0, 8, f"K: {st.session_state.K}", ln=True)
+    pdf.cell(0, 8, f"pH: {st.session_state.ph}", ln=True)
+    pdf.cell(0, 8, f"Temperature: {st.session_state.temperature} °C", ln=True)
+    pdf.cell(0, 8, f"Humidity: {st.session_state.humidity} %", ln=True)
+    pdf.cell(0, 8, f"Rainfall: {st.session_state.rainfall} mm", ln=True)
+    pdf.ln(5)
+
+    # ---------- Crop Recommendation ----------
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 10, t("Crop Recommendation:"), ln=True)
+
+    pdf.set_font("DejaVu", "", 11)
+    pdf.cell(0, 8, f"Recommended Crop: {recommendation.capitalize()}", ln=True)
+
+    rotation_crop = rotation_rules.get(recommendation, t("Not available"))
+    pdf.cell(0, 8, f"Suggested Rotation Crop: {rotation_crop}", ln=True)
+    pdf.ln(4)
+
+    # ---------- Rotation Plan ----------
+    base_type = crop_type_map.get(recommendation)
+
+    if base_type:
+        type_order = ["legume", "cereal", "oilseed"]
+        current_index = type_order.index(base_type)
+
         pdf.set_font("DejaVu", "B", 12)
-        pdf.cell(0, 10, t("Input Conditions:"), ln=True)
+        pdf.cell(0, 10, t("Crop Rotation Plan:"), ln=True)
+        pdf.set_font("DejaVu", "", 11)
 
-        pdf.set_font("DejaVu", "", 12)
-        pdf.cell(0, 10, t(f"Nitrogen (N): {st.session_state.N}"), ln=True)
-        pdf.cell(0, 10, t(f"Phosphorus (P): {st.session_state.P}"), ln=True)
-        pdf.cell(0, 10, t(f"Potassium (K): {st.session_state.K}"), ln=True)
-        pdf.cell(0, 10, t(f"pH: {st.session_state.ph}"), ln=True)
-        pdf.cell(0, 10, t(f"Temperature: {st.session_state.temperature} °C"), ln=True)
-        pdf.cell(0, 10, t(f"Humidity: {st.session_state.humidity} %"), ln=True)
-        pdf.cell(0, 10, t(f"Rainfall: {st.session_state.rainfall} mm"), ln=True)
-        pdf.ln(5)
+        for i in range(1, 4):
+            next_type = type_order[(current_index + i) % len(type_order)]
+            candidates = rotation_cycle.get(next_type, [])
 
-        # Recommendation
-        pdf.set_font("DejaVu", "B", 12)
-        pdf.cell(0, 10, t("Crop Recommendation:"), ln=True)
-
-        pdf.set_font("DejaVu", "", 12)
-        pdf.cell(0, 10, t(f"Recommended Crop: {recommendation}"), ln=True)
-        rotation_crop = rotation_rules.get(recommendation.lower(), t("Not available"))
-        pdf.cell(0, 10, t(f"Suggested Crop Rotation: {rotation_crop}"), ln=True)
-        pdf.ln(5)
-
-        # Rotation Plan
-        base_type = crop_type_map.get(recommendation.lower())
-        if base_type:
-            type_order = ["legume", "cereal", "oilseed"]
-            current_index = type_order.index(base_type)
-
-            for i in range(1, 4):
-                next_type = type_order[(current_index + i) % 3]
-                candidates = rotation_cycle[next_type]
+            if candidates:
                 suggested_crop = np.random.choice(candidates)
                 label = [t("Next Season"), t("Season After"), t("3rd Season After")][i - 1]
-                pdf.cell(0, 10, t(f"{label} ({next_type.title()}): {suggested_crop}"), ln=True)
-        else:
-            pdf.cell(0, 10, t("No detailed rotation cycle available."), ln=True)
-
-        pdf.ln(5)
-
-        # Fertilizer
-        pdf.set_font("DejaVu", "B", 12)
-        pdf.cell(0, 10, t("Fertilizer Recommendation:"), ln=True)
-
-        pdf.set_font("DejaVu", "", 12)
-        fert = fertilizer_data.get(recommendation.lower(), t("No fertilizer info available."))
-        fert = clean_pdf_text(fert)
-
-        pdf.multi_cell(0, 10, txt=fert)
-        pdf.ln(5)
-
-        # Yield & Profit Forecast
-        rec_data = yield_df[yield_df["Crop"].str.lower() == recommendation.lower()]
-        if not rec_data.empty:
-            yield_kg = rec_data.iloc[0]["Avg_Yield_kg_per_acre"]
-            default_price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
-            profit = yield_kg * default_price
-
-            pdf.set_font("DejaVu", "B", 12)
-            pdf.cell(0, 10, t("Yield & Profit Forecast:"), ln=True)
-
-            pdf.set_font("DejaVu", "", 12)
-            pdf.cell(0, 10, t(f"Expected Yield: {yield_kg} kg/acre"), ln=True)
-            pdf.cell(0, 10, t(f"Estimated Profit: ₹{profit:,.2f} per acre"), ln=True)
-        else:
-            pdf.cell(0, 10, t("Yield data not available."), ln=True)
-
-        # Save & Download
-        # ---------- Save & Download (Fixed, Safe for all systems) ----------
-        raw_pdf = pdf.output(dest="S")   # could be bytes, bytearray, or str
-
-        # Convert safely
-        if isinstance(raw_pdf, bytes):
-            pdf_bytes = raw_pdf
-        elif isinstance(raw_pdf, bytearray):
-            pdf_bytes = bytes(raw_pdf)
-        elif isinstance(raw_pdf, str):
-            # fpdf sometimes returns a latin-1 encoded string representing raw bytes
-            pdf_bytes = raw_pdf.encode("latin1", errors="replace")
-        else:
-            # Final fallback (extremely rare)
-            pdf_bytes = bytes(raw_pdf)
-
-        # Create buffer
-        pdf_buffer = io.BytesIO(pdf_bytes)
-        pdf_buffer.seek(0)
-
-        # Download button
-        st.download_button(
-            label=t("Download Full Report as PDF"),
-            data=pdf_buffer,
-            file_name="agrosense_full_report.pdf",
-            mime="application/pdf"
-        )
-
-
+                pdf.cell(
+                    0,
+                    8,
+                    f"{label} ({next_type.capitalize()}): {suggested_crop.capitalize()}",
+                    ln=True,
+                )
     else:
-        st.warning(t("⚠️ Please generate a recommendation first."))
+        pdf.cell(0, 8, t("No rotation data available."), ln=True)
+
+    pdf.ln(4)
+
+    # ---------- Fertilizer ----------
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 10, t("Fertilizer Recommendation:"), ln=True)
+
+    pdf.set_font("DejaVu", "", 11)
+    fert = fertilizer_data.get(recommendation, t("No fertilizer info available."))
+    fert = clean_pdf_text(fert)
+    pdf.multi_cell(0, 8, fert)
+
+    pdf.ln(4)
+
+    # ---------- Yield & Profit ----------
+    rec_data = yield_df[yield_df["Crop"].str.lower() == recommendation]
+
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 10, t("Yield & Profit Forecast:"), ln=True)
+    pdf.set_font("DejaVu", "", 11)
+
+    if not rec_data.empty:
+        yield_kg = rec_data.iloc[0]["Avg_Yield_kg_per_acre"]
+        price = rec_data.iloc[0]["Market_Price_Rs_per_kg"]
+        profit = yield_kg * price
+
+        pdf.cell(0, 8, f"Expected Yield: {yield_kg} kg/acre", ln=True)
+        pdf.cell(0, 8, f"Estimated Profit: ₹{profit:,.2f} per acre", ln=True)
+    else:
+        pdf.cell(0, 8, t("Yield data not available."), ln=True)
+
+    # ---------- Safe PDF Output ----------
+    raw_pdf = pdf.output(dest="S")
+
+    if isinstance(raw_pdf, str):
+        pdf_bytes = raw_pdf.encode("latin1", errors="replace")
+    else:
+        pdf_bytes = bytes(raw_pdf)
+
+    pdf_buffer = io.BytesIO(pdf_bytes)
+    pdf_buffer.seek(0)
+
+    st.download_button(
+        label=t("⬇️ Download Full Report as PDF"),
+        data=pdf_buffer,
+        file_name="agrosense_full_report.pdf",
+        mime="application/pdf",
+    )
